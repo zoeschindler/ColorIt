@@ -50,13 +50,11 @@ color_ids <- function(
     n_neighbors = 8) {
 
   # check inputs
+  # TODO
   
   # assign color palette
   pal_fun <- ifelse(length(col) > 1, colorRampPalette(col), get_pal(col))
   pal <- pal_fun(ncol)
-  
-  # prepare output data
-  out <- c()
   
   # calculate ID centers
   centers <- df[, .(x = mean(x), y = mean(y), z = mean(z)), by = ID]
@@ -65,8 +63,8 @@ color_ids <- function(
   color_RGB <- colorspace::hex2RGB(pal)
   color_LAB <- as(color_RGB, "LAB")
   color_lookup <- data.table::data.table(
-    "ID" = 1:ncol,
-    "color_ID" = pal,
+    "color_ID" = 1:ncol,
+    "color_HEX" = pal,
     "color_RGB" = split(color_RGB@coords, seq(nrow(color_RGB@coords))),
     "color_LAB" = split(color_LAB@coords, seq(nrow(color_LAB@coords)))
   )
@@ -82,37 +80,59 @@ color_ids <- function(
   mean_distances <- rowMeans(kdtree$nn.dists)
   
   # sort IDs depending on average distance to neighbours
-  sorted_ids <- centers[order(-mean_distances), ID]
+  sorted_center_ids <- centers[order(-mean_distances), ID]
   
-  # assign first instance ID a random color
-  
+  # prepare output data
+  out <- data.table::data.table(
+    "ID" = centers$ID,
+    "color_ID" = 0
+  )
   
   # loop through all IDs
-  
-    # neighbours have no color -> random color
-  
-    # neighbours have color
+  for (curr_center_id in sorted_center_ids) {
+    
+    # extract nearest neighbours
+    curr_nn_ids <- kdtree$nn.idx[curr_center_id,][-1]
+    
+    # check colors of nearest neighbours
+    if (sum(out[out$ID %in% curr_nn_ids,"color_ID"]) == 0) {
+      
+      # assign random color
+      out[out$ID == curr_center_id,"color_ID"] <- sample(color_lookup[,color_ID], 1)
+    } else {
+      
+      # get unused colors
+      colors_unused <- c() # TODO
       
       # check if all colors have been used
-  
-      # yes:
-  
-      # new, most different color from neighbours
-  
-      # no:
-  
+      if (length(colors_unused == 0)) {
+        
+        # new, most different color from neighbours
+        # TODO
+        
+      } else if (length(colors_unused == 1)) {
+        
+        # use left over color
+        out[out$ID == curr_center_id,"color_ID"] <- colors_unused
+        
+      } else {
+        
         # for each color not yet assigned to a neighbour
+        # TODO
+        
+        # calculate total color distance
+        # TODO
+        
+        # get most different color (largest distance)
+        # TODO
+      }
+    }
+  }
   
-          # calculate total color distance
-  
-      # get most different color (largest distance)
-  
-    # assign ID the color
-  
-    # assign RGB color to points
+  # assign RGB color to points
   
   # return results
-
+  return(out)
 }
 
 # EXECUTION ====================================================================
@@ -125,7 +145,8 @@ ggplot2::ggplot(df) +
   ggplot2::geom_point(ggplot2::aes(x=x, y=y, col = ID))
 
 # add color values
-
+df <- color_ids(df)
+  
 # show results
 
 # ==============================================================================
