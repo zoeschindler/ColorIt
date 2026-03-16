@@ -46,7 +46,7 @@ dummy_input <- function(n = 20) {
 color_ids <- function(
     df = dummy_input(),
     col = "sky",
-    ncol = 12,
+    ncol = 10,
     n_neighbors = 8) {
 
   # check inputs
@@ -91,45 +91,58 @@ color_ids <- function(
   # loop through all IDs
   for (curr_center_id in sorted_center_ids) {
     
-    # extract nearest neighbours
+    # extract nearest neighbours (or: within a certain distance?)
     curr_nn_ids <- kdtree$nn.idx[curr_center_id,][-1]
+    curr_nn_cols <- out$color_ID[out$ID %in% curr_nn_ids]
     
     # check colors of nearest neighbours
-    if (sum(out[out$ID %in% curr_nn_ids,"color_ID"]) == 0) {
+    if (sum(curr_nn_cols) == 0) {
       
       # assign random color
       out[out$ID == curr_center_id,"color_ID"] <- sample(color_lookup[,color_ID], 1)
     } else {
       
       # get unused colors
-      colors_unused <- c() # TODO
+      colors_unused <- setdiff(color_lookup$color_ID, unique(curr_nn_cols))
+      colors_used <- setdiff(color_lookup$color_ID, colors_unused)
       
       # check if all colors have been used
-      if (length(colors_unused == 0)) {
+      if (length(colors_unused) == 0) {
+        
+        # throw error
+        stop("not enough colors or too many neighbours")
         
         # new, most different color from neighbours
         # TODO
         
-      } else if (length(colors_unused == 1)) {
+      } else if (length(colors_unused) == 1) {
         
         # use left over color
-        out[out$ID == curr_center_id,"color_ID"] <- colors_unused
+        col_new <- colors_unused
         
       } else {
         
-        # for each color not yet assigned to a neighbour
-        # TODO
-        
-        # calculate total color distance
-        # TODO
-        
-        # get most different color (largest distance)
-        # TODO
+        # get total color distances of unused to used colors
+        if (length(colors_used) == 1) {
+          col_dist_unused <- color_distances[colors_unused,colors_used]
+        } else {
+          col_dist_unused <- rowSums(color_distances[colors_unused,colors_used])
+        }
+      
+        # get most different color
+        col_new <- as.numeric(names(col_dist_unused[which.max(col_dist_unused)]))
       }
+      
+      # assign new color
+      out[out$ID == curr_center_id,"color_ID"] <- col_new
     }
   }
   
   # assign RGB color to points
+  # TODO: join color id to points
+  # TODO: join rgb & hex to points
+  # do.call(rbind, color_lookup$color_RGB[out$color_ID])
+  # color_lookup$color_HEX[out$color_ID]
   
   # return results
   return(out)
