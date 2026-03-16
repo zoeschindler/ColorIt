@@ -86,7 +86,8 @@ color_ids <- function(
   mean_distances <- rowMeans(kdtree$nn.dists)
   
   # sort IDs depending on average distance to neighbours
-  sorted_center_ids <- centers[order(-mean_distances), ID]
+  # smallest distance first -> most close neighbours first
+  sorted_center_ids <- centers[order(mean_distances), ID]
   
   # prepare output data
   out <- data.table::data.table(
@@ -148,7 +149,6 @@ color_ids <- function(
   }
   
   # assign RGB color to points
-  # df <- merge(merge(df, out, by = "ID"), color_lookup[,c("color_ID","color_HEX","color_RGB")], by = "color_ID")
   out <- merge(out, color_lookup)
   out$color_ID <- NULL
   
@@ -194,7 +194,7 @@ points(Y~X, col=color_HEX, data = df)
 las <- readLAS("D:/github/trees.laz", select = "0")
 
 # add color values
-df <- color_ids(las@data, col = "cozy", instance_id = "PredInstance")
+df <- color_ids(las@data, col = viridis::inferno(5), instance_id = "PredInstance", ground_color = "#ff0000")
 
 # show results
 las@data <- merge(las@data, df)
