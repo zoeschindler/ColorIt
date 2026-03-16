@@ -8,13 +8,13 @@
 library(colorspace)
 library(data.table)
 library(RANN)
+library(lidR)
 
 # HELPERS ======================================================================
 
 get_pal <- function(name = "rainbow") {
   # modified from coolors.co
   palettes <- list(
-    "vibrant_summer" = c("#ff595e","#ff924c","#ffca3a","#c5ca30","#8ac926","#52a675","#1982c4","#4267ac","#6a4c93"),
     "sky" = c("#f2c13a","#ef7239","#f23184","#955ae8","#5c96f5"),
     "sea" = c("#d9ed92","#99d98c","#52b69a","#168aad","#1e6091","#154366","#0C304C"),
     "cozy" = c("#41764c","#a7c957","#eadbb3","#d68b8b","#bc4749"),
@@ -33,9 +33,9 @@ dummy_input <- function(n = 20) {
   for (i in 1:n) {
     curr <- data.table::data.table(
       "ID" = i,
-      "x" = runif(1, min=-5, max=+5) + rnorm(5),
-      "y" = runif(1, min=-5, max=+5) + rnorm(5),
-      "z" = rnorm(5))
+      "X" = runif(1, min=-5, max=+5) + rnorm(5, sd = 0.2),
+      "Y" = runif(1, min=-5, max=+5) + rnorm(5, sd = 0.2),
+      "Z" = rnorm(5))
     out <- rbind(out, curr)
   }
   return(out)
@@ -46,35 +46,41 @@ dummy_input <- function(n = 20) {
 color_ids <- function(
     df = dummy_input(),
     col = "sky",
-    ncol = 10,
-    n_neighbors = 8) {
-
+    n_col = 10,
+    n_neighbors = 10,
+    instance_id = "ID",
+    ground_id = 0,
+    ground_color = "#ffffff") {
+  
   # check inputs
   # TODO
   
   # assign color palette
   pal_fun <- ifelse(length(col) > 1, colorRampPalette(col), get_pal(col))
-  pal <- pal_fun(ncol)
+  pal <- pal_fun(n_col)
+  
+  # rename columns
+  names(df)[names(df) == instance_id] <- "ID"
   
   # calculate ID centers
-  centers <- df[, .(x = mean(x), y = mean(y), z = mean(z)), by = ID]
+  centers <- df[ID != ground_id, .(X = mean(X), Y = mean(Y), Z = min(Z)), by = ID]
   
   # create color lookup
-  color_RGB <- colorspace::hex2RGB(pal)
-  color_LAB <- as(color_RGB, "LAB")
+  color_RGB <- colorspace::hex2RGB(pal)@coords * 255
+  color_LAB <- as(colorspace::hex2RGB(pal), "LAB")
   color_lookup <- data.table::data.table(
-    "color_ID" = 1:ncol,
+    "color_ID" = 1:n_col,
     "color_HEX" = pal,
-    "color_RGB" = split(color_RGB@coords, seq(nrow(color_RGB@coords))),
-    "color_LAB" = split(color_LAB@coords, seq(nrow(color_LAB@coords)))
+    "R" = as.integer(color_RGB[,1]),
+    "G" = as.integer(color_RGB[,2]),
+    "B" = as.integer(color_RGB[,3])
   )
   
   # calculate LAB color distances (matrix)
-  lab_matrix <- do.call(rbind, color_lookup$color_LAB)
-  color_distances <- as.matrix(dist(lab_matrix))
+  color_distances <- as.matrix(dist(color_LAB@coords))
   
   # calculate spatial distances (graphs)
-  kdtree <- RANN::nn2(centers[, .(x, y, z)], k = n_neighbors)
+  kdtree <- RANN::nn2(centers[, .(X, Y, Z)], k = n_neighbors)
   
   # get mean distance of n nearest neighbours per instance
   mean_distances <- rowMeans(kdtree$nn.dists)
@@ -92,8 +98,9 @@ color_ids <- function(
   for (curr_center_id in sorted_center_ids) {
     
     # extract nearest neighbours (or: within a certain distance?)
-    curr_nn_ids <- kdtree$nn.idx[curr_center_id,][-1]
-    curr_nn_cols <- out$color_ID[out$ID %in% curr_nn_ids]
+    kdd_idx <- which(centers$ID == curr_center_id)
+    curr_nn_ids <- kdtree$nn.idx[kdd_idx,][-1]
+    curr_nn_cols <- out$color_ID[out$ID %in% centers$ID[curr_nn_ids]]
     
     # check colors of nearest neighbours
     if (sum(curr_nn_cols) == 0) {
@@ -112,15 +119,17 @@ color_ids <- function(
         # use left over color
         col_new <- colors_unused
         
-      } else if (length(colors_unused) == 0) {
-        
-        # throw warning
-        warning("not enough colors or too many neighbours")
-        
-        # get most different color from closest neighbours
-        col_new <- sample(color_lookup[,color_ID], 1)
-        
       } else {
+        
+        # check if no colors left
+        if (length(colors_unused) == 0) {
+          
+          # throw warning
+          warning("not enough colors or too many neighbours")
+          
+          # set all colors to unused
+          colors_unused <- color_lookup$color_ID
+        }
         
         # get total color distances of unused to used colors
         if (length(colors_used) == 1) {
@@ -128,7 +137,7 @@ color_ids <- function(
         } else {
           col_dist_unused <- rowSums(color_distances[colors_unused,colors_used])
         }
-      
+        
         # get most different color
         col_new <- as.numeric(names(col_dist_unused[which.max(col_dist_unused)]))
       }
@@ -139,10 +148,24 @@ color_ids <- function(
   }
   
   # assign RGB color to points
-  # TODO: join color id to points
-  # TODO: join rgb & hex to points
-  # do.call(rbind, color_lookup$color_RGB[out$color_ID])
-  # color_lookup$color_HEX[out$color_ID]
+  # df <- merge(merge(df, out, by = "ID"), color_lookup[,c("color_ID","color_HEX","color_RGB")], by = "color_ID")
+  out <- merge(out, color_lookup)
+  out$color_ID <- NULL
+  
+  # add ground color
+  ground_rgb <- as.integer(colorspace::hex2RGB(ground_color)@coords * 255)
+  out <- rbind(
+    out,
+    data.table::data.table(
+      "ID" = ground_id,
+      "color_HEX" = ground_color,
+      "R" = ground_rgb[1],
+      "G" = ground_rgb[2],
+      "B" = ground_rgb[3]
+    ))
+  
+  # rename column
+  names(out)[names(out) == "ID"] <- instance_id
   
   # return results
   return(out)
@@ -151,15 +174,30 @@ color_ids <- function(
 # EXECUTION ====================================================================
 
 # create dummy data
-df <- dummy_input()
+df <- dummy_input(50)
 
 # check data
 ggplot2::ggplot(df) +
-  ggplot2::geom_point(ggplot2::aes(x=x, y=y, col = as.factor(ID)))
+  ggplot2::geom_point(ggplot2::aes(x=X, y=Y, col = as.factor(ID)))
 
 # add color values
-df <- color_ids(df)
-  
+df_col <- color_ids(df, col = "rainbow")
+df <- merge(df, df_col)
+
 # show results
+plot(Y~X, col=color_HEX, data = df[,.(X = mean(X),Y =  mean(Y), color_HEX = unique(color_HEX)), by = ID], pch=16)
+points(Y~X, col=color_HEX, data = df)
+
+################################################################################
+
+# read data
+las <- readLAS("D:/github/trees.laz", select = "0")
+
+# add color values
+df <- color_ids(las@data, col = "cozy", instance_id = "PredInstance")
+
+# show results
+las@data <- merge(las@data, df)
+plot(las, color = "RGB")
 
 # ==============================================================================
