@@ -107,18 +107,18 @@ color_ids <- function(
       colors_used <- setdiff(color_lookup$color_ID, colors_unused)
       
       # check if all colors have been used
-      if (length(colors_unused) == 0) {
-        
-        # throw error
-        stop("not enough colors or too many neighbours")
-        
-        # new, most different color from neighbours
-        # TODO
-        
-      } else if (length(colors_unused) == 1) {
+      if (length(colors_unused) == 1) {
         
         # use left over color
         col_new <- colors_unused
+        
+      } else if (length(colors_unused) == 0) {
+        
+        # throw warning
+        warning("not enough colors or too many neighbours")
+        
+        # get most different color from closest neighbours
+        col_new <- sample(color_lookup[,color_ID], 1)
         
       } else {
         
@@ -155,7 +155,7 @@ df <- dummy_input()
 
 # check data
 ggplot2::ggplot(df) +
-  ggplot2::geom_point(ggplot2::aes(x=x, y=y, col = ID))
+  ggplot2::geom_point(ggplot2::aes(x=x, y=y, col = as.factor(ID)))
 
 # add color values
 df <- color_ids(df)
